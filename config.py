@@ -7,7 +7,7 @@ from fetch import DatabaseConnection
 
 
 class Config:
-    def __init__(self):
+    def __init__(self, collection_name="past"):
         load_dotenv()
         db = DatabaseConnection()
         self.model = "gpt-4o-mini"
@@ -26,7 +26,8 @@ class Config:
         self.vector_store = PGVector(
             embeddings=self.embeddings,
             connection=self.engine,
-            collection_name="past_documents",
+            collection_name=f"{collection_name}_documents",
             pre_delete_collection=False,
             use_jsonb=True,
         )
+        self.memory_path = "time_weighted_memory_stream.pkl"
