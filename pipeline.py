@@ -9,7 +9,7 @@ from preprocessing import PreprocessingConfig, TextPreprocessor
 load_dotenv()
 
 
-def main():
+def embedding_pipeline():
     # 1. 데이터베이스 연결 및 데이터 가져오기
     print("데이터베이스 연결 중...")
     db = DatabaseConnection()
@@ -63,4 +63,4 @@ def main():
 
 
 if __name__ == "__main__":
-    main()
+    embedding_pipeline()

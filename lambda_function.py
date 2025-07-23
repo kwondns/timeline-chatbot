@@ -4,6 +4,7 @@ from typing import Any, Dict
 from chain import MultiRouteChain
 from embedding import EmbeddingGenerator
 from fetch import DatabaseConnection
+from pipeline import embedding_pipeline
 
 db_conn = DatabaseConnection()
 timeline_chain = MultiRouteChain()
@@ -27,26 +28,13 @@ def handler(event: Dict[str, Any], context) -> Dict[str, Any]:
         )
 
     elif path.endswith("/embedding"):
-        data = body.get("data")
-        if not isinstance(data, list):
-            return _response(400, {"detail": "Data list required"})
-        # 예: [{ "id": ..., "content": ... }, ...]
         try:
-            embedding_gen.process_dataframe(
-                df=_to_dataframe(data), chunks_col="processed_chunks"
-            )
+            embedding_pipeline()
             return _response(200, {"status": "embeddings generated"})
         except Exception as e:
             return _response(500, {"detail": str(e)})
-
     else:
         return _response(404, {"detail": "Not Found"})
-
-
-def _to_dataframe(data_list):
-    import pandas as pd
-
-    return pd.DataFrame(data_list)
 
 
 def _response(status_code: int, body: Dict[str, Any]) -> Dict[str, Any]:
