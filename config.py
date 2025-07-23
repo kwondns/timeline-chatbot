@@ -30,4 +30,4 @@ class Config:
             pre_delete_collection=False,
             use_jsonb=True,
         )
-        self.memory_path = "time_weighted_memory_stream.pkl"
+        self.memory_path = "/mnt/efs/time_weighted_memory_stream.pkl"
