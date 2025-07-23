@@ -37,7 +37,7 @@ class EmbeddingGenerator:
 
         self.time_weighted_vector_store_retriever = TimeWeightedVectorStoreRetriever(
             vectorstore=self.vector_store,
-            decay_rate=0.01,
+            decay_rate=0.005,
             time_key="created_at",
             memory_stream=saved_data,
         )
