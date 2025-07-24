@@ -16,7 +16,7 @@ def embedding_pipeline():
 
     lastEmbeddingQuery = """SELECT *
                             FROM timeline_embedding.langchain_pg_embedding
-                            ORDER BY (cmetadata ->>'created_at')::timestamp DESC
+                            ORDER BY (cmetadata ->>'created_at_str')::timestamp DESC
                             LIMIT 1; \
                          """
     last_df = db.fetch_data(lastEmbeddingQuery)
@@ -31,7 +31,7 @@ def embedding_pipeline():
         print("임베딩 이력이 없으므로 전체 데이터를 불러옵니다.")
     else:
         # (2) 최근 임베딩 이후 데이터만 조회
-        last_time = last_df["cmetadata"][0]["created_at"]
+        last_time = last_df["cmetadata"][0]["created_at_str"]
         print(f"마지막 임베딩 시각: {last_time}")
         query = f"""
             SELECT *

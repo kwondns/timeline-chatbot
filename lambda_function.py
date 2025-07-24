@@ -11,9 +11,11 @@ timeline_chain = MultiRouteChain()
 embedding_gen = EmbeddingGenerator()
 
 
-def handler(event: Dict[str, Any], context) -> Dict[str, Any]:
+def handler(event, context):
     path = event.get("rawPath") or event.get("path", "")
-    body = json.loads(event.get("body", "{}"))
+    body = event.get("body", "{}")
+    if isinstance(body, str):
+        body = json.loads(body)
 
     if path.endswith("/chat"):
         query = body.get("query", "").strip()
