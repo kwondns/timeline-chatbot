@@ -82,14 +82,14 @@ class Config:
             return []
 
     def upload_memory(self, memory):
-        env = os.getenv("ENVRIONMENT")
+        env = os.getenv("ENVIRONMENT")
         if env == "development":
             return self._upload_memory_local(memory)
         elif env == "production":
             return self._upload_memory_s3(memory)
 
     def get_memory(self):
-        env = os.getenv("ENVRIONMENT")
+        env = os.getenv("ENVIRONMENT")
         if env == "development":
             return self._get_memory_local()
         elif env == "production":
