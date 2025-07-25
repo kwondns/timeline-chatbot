@@ -1,5 +1,4 @@
 import os
-import pickle
 from datetime import datetime, timedelta
 from typing import Dict, List, Literal, Any
 from zoneinfo import ZoneInfo
@@ -140,17 +139,11 @@ class MultiRouteChain:
         )
 
         # 2. WEIGHTED: TimeWeightedVectorStoreRetriever (시간 가중치)
-        self.memory_path = self.config.memory_path
-        if os.path.exists(self.memory_path):
-            with open(self.memory_path, "rb") as f:
-                saved_data = pickle.load(f)
-        else:
-            saved_data = []
         self.weighted_retriever = TimeWeightedVectorStoreRetriever(
             vectorstore=self.vectorstore,
             decay_rate=0.999,
             k=5,
-            memory_stream=saved_data,
+            memory_stream=self.config.get_memory(),
             search_kwargs={
                 "filter": {
                     "created_at": {

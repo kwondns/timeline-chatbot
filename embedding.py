@@ -1,6 +1,5 @@
 import os
 import logging
-import pickle
 
 import pandas as pd
 
@@ -29,17 +28,11 @@ class EmbeddingGenerator:
         self.vector_store = self.config.vector_store
         self.memory_path = self.config.memory_path
 
-        if os.path.exists(self.memory_path):
-            with open(self.memory_path, "rb") as f:
-                saved_data = pickle.load(f)
-        else:
-            saved_data = []
-
         self.time_weighted_vector_store_retriever = TimeWeightedVectorStoreRetriever(
             vectorstore=self.vector_store,
             decay_rate=0.005,
             time_key="created_at",
-            memory_stream=saved_data,
+            memory_stream=self.config.get_memory(),
         )
 
     def _to_ts(self, ts):  # pandas.Timestamp, datetime, str 모두 처리
@@ -89,5 +82,6 @@ class EmbeddingGenerator:
             logger.info(
                 f"✅ 문서 {row['id']} 임베딩 및 저장 완료 (청크 {len(chunks)}개)"
             )
-        with open(self.memory_path, "wb") as f:
-            pickle.dump(self.time_weighted_vector_store_retriever.memory_stream, f)
+        self.config.upload_memory(
+            self.time_weighted_vector_store_retriever.memory_stream
+        )
