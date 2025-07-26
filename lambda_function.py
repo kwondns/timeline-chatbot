@@ -11,7 +11,7 @@ timeline_chain = MultiRouteChain()
 embedding_gen = EmbeddingGenerator()
 
 
-def handler(event, context):
+def handler(event, context, response_stream):
     path = event.get("rawPath") or event.get("path", "")
     body = event.get("body", "{}")
     if isinstance(body, str):
@@ -21,13 +21,10 @@ def handler(event, context):
         query = body.get("query", "").strip()
         if not query:
             return _response(400, {"detail": "Query must not be empty"})
-        result = timeline_chain.invoke(query)
-        return _response(
-            200,
-            {
-                "answer": result["answer"],
-            },
-        )
+        response_stream.set_content_type("text/event-stream")
+        for chunk in timeline_chain.stream(query):
+            response_stream.write(json.dumps(chunk))
+        response_stream.end()
 
     elif path.endswith("/embedding"):
         try:
