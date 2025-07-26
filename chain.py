@@ -18,12 +18,7 @@ from langchain.chains.query_constructor.base import AttributeInfo
 from config import Config
 from fetch import DatabaseConnection
 
-import langchain
 
-langchain.debug = True if os.getenv("ENVIRONMENT") == "dev" else False
-
-
-# 라우팅 스키마 정의 (사용자의 실제 요구사항 반영)
 class TimelineRouteQuery(TypedDict):
     destination: Literal["FILTER", "WEIGHTED", "SIMILARITY"]
     reasoning: str
@@ -31,8 +26,6 @@ class TimelineRouteQuery(TypedDict):
 
 
 class MultiRouteChain:
-    """사용자의 실제 timeline 데이터에 최적화된 LCEL MultiRouteChain"""
-
     def __init__(self):
         self.config = Config()
         db = DatabaseConnection()
@@ -152,27 +145,6 @@ class MultiRouteChain:
                 }
             },
         )
-
-        # Filter Retriever를 추가하여 Ensemble로 검색
-        # self.filter_weighted_retriever = self.vectorstore.as_retriever(
-        #     search_kwargs={
-        #         "filter": {
-        #             "created_at": {
-        #                 "$gt": (datetime.now() - timedelta(days=30)).timestamp()
-        #             }
-        #         }
-        #     }
-        # )
-        # self.ensemble = EnsembleRetriever(
-        #     retrievers=[self.filter_weighted_retriever, self.weighted_retriever],
-        #     weights=[0.5, 0.5],
-        # )
-
-        # self.multi_query_weighted_retriever = MultiQueryRetriever.from_llm(
-        #     retriever=self.weighted_retriever,
-        #     llm=self.llm,
-        #     include_original=True,
-        # )
 
         # 3. SIMILARITY: 기본 벡터 유사도 검색
         self.similarity_retriever = self.vectorstore.as_retriever(
@@ -297,7 +269,7 @@ class MultiRouteChain:
             inner_stream = answer.stream({"query": query, "context": context})
 
             for event in inner_stream:
-                yield event.content
+                yield event.content  # 모델의 실제 출력만 전달
 
         # 메인 체인 구성
         self.main_chain = (
@@ -324,50 +296,3 @@ class MultiRouteChain:
             },
             "total_queries": total,
         }
-
-
-# 실제 사용 예시
-def main():
-    """실제 사용 예시"""
-
-    # 체인 초기화
-    timeline_chain = MultiRouteChain()
-
-    # 다양한 질문 유형 테스트
-    test_queries = [
-        "2024년 2월에 GSAP 관련해서 뭘 작업했나요?",  # → FILTER
-        "가장 최근에 작업한 마크다운 스타일링 내용이 뭔가요?",  # → WEIGHTED
-        "CSS 애니메이션 구현하는 방법이 뭐가 있나요?",  # → SIMILARITY
-        "타임라인 관련 과거 작업들을 찾아주세요",  # → FILTER
-        "가장 최근에 작업한 React에 대한 내용은 뭐야?",
-        "가장 최근에 작업한 내용들을 요약해줘",
-        "가장 마지막 React 작업은 뭐였지?",
-        "가장 마지막 작업 내용",
-        "Next에서 캐싱을 다루는 작업은 언제했지?",
-    ]
-
-    print("🎯 Timeline MultiRouteChain 테스트 시작\n")
-
-    for i, query in enumerate(test_queries, 1):
-        print(f"{'=' * 60}")
-        print(f"테스트 {i}: {query}")
-        print(f"{'=' * 60}")
-
-        try:
-            for chunk in timeline_chain.stream(query):
-                print(chunk, end="", flush=True)
-        except Exception as e:
-            print(f"❌ 오류 발생: {e}\n")
-
-    # 통계 출력
-    stats = timeline_chain.get_routing_stats()
-    print("📈 라우팅 통계:")
-    for route, count in stats.items():
-        if route != "percentages" and route != "total_queries":
-            percentage = stats.get("percentages", {}).get(route, 0)
-            print(f"  {route}: {count}회 ({percentage}%)")
-    print(f"  총 쿼리: {stats.get('total_queries', 0)}회")
-
-
-if __name__ == "__main__":
-    main()
