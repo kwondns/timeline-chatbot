@@ -294,9 +294,10 @@ class MultiRouteChain:
             )
 
             answer = answer_prompt | self.llm
-            result = answer.invoke({"query": query, "context": context})
+            inner_stream = answer.stream({"query": query, "context": context})
 
-            return {**inputs, "answer": result.content, "source_count": len(docs)}
+            for event in inner_stream:
+                yield event.content
 
         # 메인 체인 구성
         self.main_chain = (
@@ -304,14 +305,6 @@ class MultiRouteChain:
             | RunnableLambda(route_query)
             | RunnableLambda(generate_answer)
         )
-
-    def invoke(self, query: str) -> Dict[str, Any]:
-        """동기 실행"""
-        return self.main_chain.invoke({"query": query})
-
-    async def ainvoke(self, query: str) -> Dict[str, Any]:
-        """비동기 실행"""
-        return await self.main_chain.ainvoke({"query": query})
 
     def stream(self, query: str):
         """스트리밍 실행"""
@@ -361,16 +354,8 @@ def main():
         print(f"{'=' * 60}")
 
         try:
-            result = timeline_chain.invoke(query)
-
-            print(f"📍 라우팅: {result['routing_decision']}")
-            print(f"🤔 이유: {result['reasoning']}")
-            print(f"📊 신뢰도: {result['confidence']:.2f}")
-            print(f"📚 소스 개수: {result['source_count']}")
-            print(f"\n💬 답변:")
-            print(result["answer"])
-            print(f"\n{'=' * 60}\n")
-
+            for chunk in timeline_chain.stream(query):
+                print(chunk, end="", flush=True)
         except Exception as e:
             print(f"❌ 오류 발생: {e}\n")
 

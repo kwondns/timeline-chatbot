@@ -24,6 +24,7 @@ class Config:
             model=self.model,
             temperature=0.1,
             openai_api_key=os.getenv("OPENAI_API_KEY"),
+            streaming=True,
         )
         self.embeddings = OpenAIEmbeddings(
             model=self.embedding_model, api_key=self.openai_api_key
