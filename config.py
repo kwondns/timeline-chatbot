@@ -37,7 +37,7 @@ class Config:
             use_jsonb=True,
         )
 
-        self.memory_path = "/mnt/efs/time_weighted_memory_stream.pkl"
+        self.memory_path = "time_weighted_memory_stream.pkl"
         self.bucket = os.getenv("S3_BUCKET")
         self.key = os.getenv("S3_KEY")
         self.s3 = boto3.client("s3")
