@@ -1,44 +1,39 @@
 import os
-import json
-from typing import Any, Dict
+
+import uvicorn
+from fastapi import FastAPI, HTTPException
+from fastapi.responses import StreamingResponse
+from pydantic import BaseModel
+
 from chain import MultiRouteChain
-from embedding import EmbeddingGenerator
-from fetch import DatabaseConnection
 from pipeline import embedding_pipeline
 
-db_conn = DatabaseConnection()
 timeline_chain = MultiRouteChain()
-embedding_gen = EmbeddingGenerator()
+
+app = FastAPI()
 
 
-def handler(event, context, response_stream):
-    path = event.get("rawPath") or event.get("path", "")
-    body = event.get("body", "{}")
-    if isinstance(body, str):
-        body = json.loads(body)
-
-    if path.endswith("/chat"):
-        query = body.get("query", "").strip()
-        if not query:
-            return _response(400, {"detail": "Query must not be empty"})
-        response_stream.set_content_type("text/event-stream")
-        for chunk in timeline_chain.stream(query):
-            response_stream.write(json.dumps(chunk))
-        response_stream.end()
-
-    elif path.endswith("/embedding"):
-        try:
-            embedding_pipeline()
-            return _response(200, {"status": "embeddings generated"})
-        except Exception as e:
-            return _response(500, {"detail": str(e)})
-    else:
-        return _response(404, {"detail": "Not Found"})
+class ChatRequest(BaseModel):
+    query: str
 
 
-def _response(status_code: int, body: Dict[str, Any]) -> Dict[str, Any]:
-    return {
-        "statusCode": status_code,
-        "headers": {"Content-Type": "application/json"},
-        "body": json.dumps(body),
-    }
+@app.post("/chat")
+def chat(request: ChatRequest):
+    if not request.query:
+        raise HTTPException(status_code=400, detail="Query must not be empty")
+    return StreamingResponse(
+        timeline_chain.stream(request.query), media_type="text/event-stream"
+    )
+
+
+@app.post("/embedding")
+def embedding():
+    try:
+        embedding_pipeline()
+        return {"status": "embeddings generated"}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+if __name__ == "__main__":
+    uvicorn.run(app, host="0.0.0.0", port=int(os.environ.get("PORT", "8080")))
