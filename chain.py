@@ -19,18 +19,11 @@ from config import Config
 from fetch import DatabaseConnection
 
 
-class TimelineRouteQuery(TypedDict):
-    destination: Literal["FILTER", "WEIGHTED", "SIMILARITY"]
-    reasoning: str
-    confidence: float
-
-
 class MultiRouteChain:
     def __init__(self):
         self.config = Config()
         db = DatabaseConnection()
         self.engine = db.get_engine()
-        self.routing_stats = {"FILTER": 0, "WEIGHTED": 0, "SORT": 0, "SIMILARITY": 0}
         self.embeddings = self.config.embeddings
         self.llm = self.config.llm
         self.vectorstore = self.config.vector_store
@@ -96,6 +89,10 @@ class MultiRouteChain:
            - 개념적 질문: "CSS 스타일링 방법"
            - 기술 설명: "애니메이션 구현"
            - 일반적인 지식 검색
+        
+        5. ETC: 과거에 작업한 내용이랑 상관 없는 단순 정보성 질문
+            - "오늘이 며칠이지?" 혹은 "지금 몇시야"와 같은 단순 검색
+            
 
         쿼리: 반환 예시
         1. 가장 마지막 React 작업은? -> WEIGHTED
@@ -104,7 +101,7 @@ class MultiRouteChain:
         
         JSON 형태로 응답하세요:
         {{
-            "destination": "FILTER|WEIGHTED|SORT|SIMILARITY",
+            "destination": "FILTER|WEIGHTED|SORT|SIMILARITY|ETC",
             "reasoning": "선택한 이유",
             "confidence": 0.0-1.0
             "search_kwargs": {{{{
@@ -188,7 +185,6 @@ class MultiRouteChain:
 
             # 통계 업데이트
             destination = routing_result["destination"]
-            self.routing_stats[destination] += 1
 
             # 검색기 선택 및 실행
             if destination == "FILTER":
@@ -201,9 +197,18 @@ class MultiRouteChain:
                     docs = self._direct_filter_vector_search(
                         query, search_kwargs=search_kwargs
                     )
-            else:  # SIMILARITY
+            elif destination == "SIMILARITY":
                 docs = self.multi_query_similarity_retriever.invoke(query)
-
+            else:  # ETC
+                answer = self.config.llm.invoke(query)
+                return {
+                    "query": query,
+                    "documents": [],
+                    "routing_decision": destination,
+                    "reasoning": routing_result["reasoning"],
+                    "confidence": routing_result["confidence"],
+                    "direct_answer": answer.content.strip(),
+                }
             return {
                 "query": query,
                 "documents": docs,
@@ -221,6 +226,10 @@ class MultiRouteChain:
 
         def generate_answer(inputs: Dict[str, Any]) -> Dict[str, Any]:
             """최종 답변 생성"""
+            if "direct_answer" in inputs:
+                # ETC: 오직 direct_answer만 출력
+                yield inputs["direct_answer"]
+                return
             query = inputs["query"]
             docs = inputs["documents"]
 
@@ -282,17 +291,3 @@ class MultiRouteChain:
         """스트리밍 실행"""
         for chunk in self.main_chain.stream({"query": query}):
             yield chunk
-
-    def get_routing_stats(self) -> Dict[str, Any]:
-        """라우팅 통계 반환"""
-        total = sum(self.routing_stats.values())
-        if total == 0:
-            return self.routing_stats
-
-        return {
-            **self.routing_stats,
-            "percentages": {
-                k: round(v / total * 100, 2) for k, v in self.routing_stats.items()
-            },
-            "total_queries": total,
-        }
