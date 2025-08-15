@@ -9,23 +9,25 @@ from preprocessing import PreprocessingConfig, TextPreprocessor
 load_dotenv()
 
 
-def embedding_pipeline():
+def embedding_pipeline(user_id: str):
     # 1. 데이터베이스 연결 및 데이터 가져오기
     print("데이터베이스 연결 중...")
     db = DatabaseConnection()
 
-    lastEmbeddingQuery = """SELECT *
+    last_embedding_query = f"""SELECT *
                             FROM timeline_embedding.langchain_pg_embedding
+                            WHERE (cmetadata ->> 'user_id'='{user_id}')
                             ORDER BY (cmetadata ->>'created_at_str')::timestamp DESC
                             LIMIT 1; \
                          """
-    last_df = db.fetch_data(lastEmbeddingQuery)
+    last_df = db.fetch_data(last_embedding_query)
 
     if last_df.empty:
         # (1) 임베딩 이력이 없음 → 전체 데이터 조회
-        query = """
+        query = f"""
                 SELECT *
                 FROM timeline.past
+                WHERE user_id='{user_id}'
                 ORDER BY "startTime"; \
                 """
         print("임베딩 이력이 없으므로 전체 데이터를 불러옵니다.")
@@ -36,7 +38,7 @@ def embedding_pipeline():
         query = f"""
             SELECT *
             FROM timeline.past
-            WHERE "startTime" > '{last_time}'
+            WHERE "startTime" > '{last_time}' AND "user_id" = '{user_id}'
             ORDER BY "startTime";
         """
 
@@ -60,7 +62,3 @@ def embedding_pipeline():
     # 4. 연결 종료
     db.close_connection()
     print("임베딩 파이프라인 완료!")
-
-
-if __name__ == "__main__":
-    embedding_pipeline()

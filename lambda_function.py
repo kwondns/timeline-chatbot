@@ -15,21 +15,27 @@ app = FastAPI()
 
 class ChatRequest(BaseModel):
     query: str
+    user_id: str
+
+
+class EmbeddingRequest(BaseModel):
+    user_id: str
 
 
 @app.post("/chat")
 def chat(request: ChatRequest):
-    if not request.query:
-        raise HTTPException(status_code=400, detail="Query must not be empty")
+    if not request.query or not request.user_id:
+        raise HTTPException(status_code=400, detail="UserId or Query must not be empty")
     return StreamingResponse(
-        timeline_chain.stream(request.query), media_type="text/event-stream"
+        timeline_chain.stream(request.query, request.user_id),
+        media_type="text/event-stream",
     )
 
 
 @app.post("/embedding")
-def embedding():
+def embedding(request: EmbeddingRequest):
     try:
-        embedding_pipeline()
+        embedding_pipeline(request.user_id)
         return {"status": "embeddings generated"}
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))

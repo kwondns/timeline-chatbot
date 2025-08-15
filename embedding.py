@@ -71,6 +71,7 @@ class EmbeddingGenerator:
                             "doc_id": str(row["id"]),
                             "doc_type": self.collection,
                             "title": row["title"],
+                            "user_id": str(row["user_id"]),
                         },
                     )
                 )
