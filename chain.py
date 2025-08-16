@@ -1,10 +1,9 @@
 import os
 from datetime import datetime, timedelta
-from typing import Dict, List, Literal, Any
+from typing import Dict, List, Literal, Any, Callable
 from zoneinfo import ZoneInfo
 
 from langchain.retrievers import MultiQueryRetriever, EnsembleRetriever
-from typing_extensions import TypedDict
 
 from langchain_core.prompts import ChatPromptTemplate
 from langchain_core.runnables import RunnableLambda, RunnablePassthrough
@@ -49,11 +48,11 @@ class MultiRouteChain:
                 description="작업이 생성된 날짜와 시간 문자열 타입",
                 type="string",
             ),
+            AttributeInfo(name="user_id", description="사용자 식별자", type="string"),
         ]
 
         # 라우팅 체인 설정
         self._setup_routing_chain()
-        self._setup_retrieval_chains()
         self._setup_main_chain()
 
     def _setup_routing_chain(self):
@@ -117,51 +116,61 @@ class MultiRouteChain:
         self.route_chain = route_prompt | self.llm | JsonOutputParser()
 
     def _setup_retrieval_chains(self):
-        """세 가지 검색 체인 설정"""
+        """네 가지 검색 체인 설정"""
 
+    def make_self_query_retriever(self, user_id: str) -> SelfQueryRetriever:
         # 1. FILTER: SelfQueryRetriever (조건부 필터링)
-        self.filter_retriever = SelfQueryRetriever.from_llm(
+        return SelfQueryRetriever.from_llm(
             llm=self.llm,
             vectorstore=self.vectorstore,
             document_contents="사용자의 과거 작업 내용",
             metadata_field_info=self.metadata_field_info,
             verbose=True,
+            search_kwargs={"k": 5, "filter": {"user_id": user_id}},
         )
 
+    def make_weighted_retriever(self, user_id: str) -> TimeWeightedVectorStoreRetriever:
         # 2. WEIGHTED: TimeWeightedVectorStoreRetriever (시간 가중치)
-        self.weighted_retriever = TimeWeightedVectorStoreRetriever(
+        return TimeWeightedVectorStoreRetriever(
             vectorstore=self.vectorstore,
             decay_rate=0.999,
             k=5,
             memory_stream=self.config.get_memory(),
             search_kwargs={
                 "filter": {
+                    "user_id": user_id,
                     "created_at": {
                         "$gt": (datetime.now() - timedelta(days=30)).timestamp()
-                    }
+                    },
                 }
             },
         )
 
+    def make_similarity_retriever(
+        self, user_id: str
+    ) -> TimeWeightedVectorStoreRetriever:
         # 3. SIMILARITY: 기본 벡터 유사도 검색
-        self.similarity_retriever = self.vectorstore.as_retriever(
-            search_type="similarity", search_kwargs={"k": 5}
+        return self.vectorstore.as_retriever(
+            search_type="similarity",
+            search_kwargs={"k": 5, "filter": {"user_id": user_id}},
         )
-        self.multi_query_similarity_retriever = MultiQueryRetriever.from_llm(
-            retriever=self.similarity_retriever,
+
+    def make_multi_query_retriever(self, user_id: str) -> MultiQueryRetriever:
+        return MultiQueryRetriever.from_llm(
+            retriever=self.make_similarity_retriever(user_id),
             llm=self.llm,
             include_original=True,
         )
 
-    def _direct_filter_vector_search(self, query: str, search_kwargs: Dict) -> List:
+    def _direct_filter_vector_search(
+        self, query: str, search_kwargs: Dict, user_id: str
+    ) -> List:
         k = search_kwargs.get("k", 5)
         sort_criteria = search_kwargs.get("sort", [])
         if sort_criteria:
             retriever = self.vectorstore.as_retriever(
                 search_type="similarity",
-                search_kwargs={
-                    "k": 1000,
-                },
+                search_kwargs={"k": 1000, "filter": {"user_id": user_id}},
             )
             docs = retriever.invoke(query)
 
@@ -172,6 +181,7 @@ class MultiRouteChain:
                         docs, key=lambda x: x.metadata["created_at"], reverse=reverse
                     )
             return docs[:k]
+        return []
 
     def _setup_main_chain(self):
         """메인 LCEL 체인 구성"""
@@ -179,6 +189,7 @@ class MultiRouteChain:
         def route_query(inputs: Dict[str, Any]) -> Dict[str, Any]:
             """라우팅 결정 및 실행"""
             query = inputs["query"]
+            user_id = inputs["user_id"]
 
             # 라우팅 결정
             routing_result = self.route_chain.invoke({"query": query})
@@ -188,17 +199,17 @@ class MultiRouteChain:
 
             # 검색기 선택 및 실행
             if destination == "FILTER":
-                docs = self.filter_retriever.invoke(query)
+                docs = self.make_self_query_retriever(user_id).invoke(query)
             elif destination == "WEIGHTED":
-                docs = self.weighted_retriever.invoke(query)
+                docs = self.make_weighted_retriever(user_id).invoke(query)
             elif destination == "SORT":
                 search_kwargs = routing_result.get("search_kwargs", {})
                 if "sort" in search_kwargs:
                     docs = self._direct_filter_vector_search(
-                        query, search_kwargs=search_kwargs
+                        query, search_kwargs=search_kwargs, user_id=user_id
                     )
             elif destination == "SIMILARITY":
-                docs = self.multi_query_similarity_retriever.invoke(query)
+                docs = self.make_multi_query_retriever(user_id).invoke(query)
             else:  # ETC
                 answer = self.config.llm.invoke(query)
                 return {
@@ -268,7 +279,7 @@ class MultiRouteChain:
                 관련 과거 작업들:
                 {context}
 
-                위 정보를 바탕으로 상세하고 실용적인 답변을 제공해주세요.
+                위 정보를 바탕으로 상세하고 실용적인 답변을 한국어로 제공해주세요.
                 """,
                     ),
                 ]
@@ -287,7 +298,7 @@ class MultiRouteChain:
             | RunnableLambda(generate_answer)
         )
 
-    def stream(self, query: str):
+    def stream(self, query: str, user_id: str):
         """스트리밍 실행"""
-        for chunk in self.main_chain.stream({"query": query}):
+        for chunk in self.main_chain.stream({"query": query, "user_id": user_id}):
             yield chunk
