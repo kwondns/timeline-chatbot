@@ -37,6 +37,7 @@ async def validation_exception_handler(req: Request, exc: RequestValidationError
 class ChatRequest(BaseModel):
     query: str
     user_id: str
+    locale: str
 
 
 class EmbeddingRequest(BaseModel):
@@ -74,7 +75,7 @@ def chat(
         logger.warning("/chat validation failed: query or user_id is empty")
         raise HTTPException(status_code=400, detail="UserId or Query must not be empty")
     return StreamingResponse(
-        timeline_chain.stream(request.query, effective_user_id),
+        timeline_chain.stream(request.query, effective_user_id, request.locale),
         media_type="text/event-stream",
     )
 

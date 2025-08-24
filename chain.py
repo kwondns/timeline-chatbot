@@ -1,9 +1,8 @@
-import os
 from datetime import datetime, timedelta
-from typing import Dict, List, Literal, Any, Callable
+from typing import Dict, List, Any
 from zoneinfo import ZoneInfo
 
-from langchain.retrievers import MultiQueryRetriever, EnsembleRetriever
+from langchain.retrievers import MultiQueryRetriever
 
 from langchain_core.prompts import ChatPromptTemplate
 from langchain_core.runnables import RunnableLambda, RunnablePassthrough
@@ -190,6 +189,7 @@ class MultiRouteChain:
             """라우팅 결정 및 실행"""
             query = inputs["query"]
             user_id = inputs["user_id"]
+            locale = inputs["locale"]
 
             # 라우팅 결정
             routing_result = self.route_chain.invoke({"query": query})
@@ -219,6 +219,7 @@ class MultiRouteChain:
                     "reasoning": routing_result["reasoning"],
                     "confidence": routing_result["confidence"],
                     "direct_answer": answer.content.strip(),
+                    "locale": locale,
                 }
             return {
                 "query": query,
@@ -226,6 +227,7 @@ class MultiRouteChain:
                 "routing_decision": destination,
                 "reasoning": routing_result["reasoning"],
                 "confidence": routing_result["confidence"],
+                "locale": locale,
             }
 
         def timestamp_to_kst(ts: float) -> str:
@@ -243,6 +245,7 @@ class MultiRouteChain:
                 return
             query = inputs["query"]
             docs = inputs["documents"]
+            locale = inputs["locale"]
 
             # 컨텍스트 구성
             context = "\n\n".join(
@@ -254,6 +257,16 @@ class MultiRouteChain:
                 ]
             )
 
+            answer_locale = {
+                "ko": "위 정보를 바탕으로 상세하고 실용적인 답변을 한국어로 제공해주세요.",
+                "en": "Please provide a detailed and practical answer in English based on the above information.",
+                "ja": "上記の情報に基づいて、詳細で実用的な回答を日本語で提供してください。",
+                "zh-cn": "请基于以上信息用中文提供详细且实用的回答。",
+                "es": "Por favor proporciona una respuesta detallada y práctica en español basada en la información anterior.",
+                "fr": "Veuillez fournir une réponse détaillée et pratique en français basée sur les informations ci-dessus.",
+            }
+
+            answer_locale_message = answer_locale.get(locale, answer_locale["ko"])
             # 답변 생성 프롬프트
             answer_prompt = ChatPromptTemplate.from_messages(
                 [
@@ -273,20 +286,26 @@ class MultiRouteChain:
                     ),
                     (
                         "human",
-                        """
+                        f"""
                 질문: {query}
 
                 관련 과거 작업들:
                 {context}
 
-                위 정보를 바탕으로 상세하고 실용적인 답변을 한국어로 제공해주세요.
+                {answer_locale_message}
                 """,
                     ),
                 ]
             )
 
             answer = answer_prompt | self.llm
-            inner_stream = answer.stream({"query": query, "context": context})
+            inner_stream = answer.stream(
+                {
+                    "query": query,
+                    "context": context,
+                    "answer_locale_message": answer_locale_message,
+                }
+            )
 
             for event in inner_stream:
                 yield event.content  # 모델의 실제 출력만 전달
@@ -298,7 +317,9 @@ class MultiRouteChain:
             | RunnableLambda(generate_answer)
         )
 
-    def stream(self, query: str, user_id: str):
+    def stream(self, query: str, user_id: str, locale: str):
         """스트리밍 실행"""
-        for chunk in self.main_chain.stream({"query": query, "user_id": user_id}):
+        for chunk in self.main_chain.stream(
+            {"query": query, "user_id": user_id, "locale": locale}
+        ):
             yield chunk
