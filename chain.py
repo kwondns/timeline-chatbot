@@ -94,6 +94,8 @@ class MultiRouteChain:
                 )
         except Exception as e:
             print(f"Error logging route decision: {e}")
+        finally:
+            session.close()
 
     def _setup_routing_chain(self):
         """사용자의 과거 작업 특성에 맞춘 라우팅 시스템"""

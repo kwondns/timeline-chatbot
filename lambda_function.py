@@ -44,39 +44,6 @@ class EmbeddingRequest(BaseModel):
     user_id: str
 
 
-@app.middleware("http")
-async def log_requests(req: Request, call_next):
-    start = time.perf_counter()
-
-    # 요청 정보 상세 로깅
-    logger.info(f"Request: {req.method} {req.url} - Headers: {dict(req.headers)}")
-
-    if req.method == "POST":
-        body = await req.body()
-        content_type = req.headers.get("content-type", "")
-        logger.info(f"Request body: {body} - Content-Type: {content_type}")
-
-        # body를 다시 사용할 수 있도록 스트림 재설정
-        async def receive():
-            return {"type": "http.request", "body": body}
-
-        req._receive = receive
-
-    try:
-        response = await call_next(req)
-        duration_ms = (time.perf_counter() - start) * 1000
-        logger.info(
-            f"{req.method} {req.url.path} -> {response.status_code} ({duration_ms:.1f} ms)"
-        )
-        return response
-    except Exception as e:
-        duration_ms = (time.perf_counter() - start) * 1000
-        logger.exception(
-            f"Unhandled error during {req.method} {req.url.path} ({duration_ms:.1f} ms): {e}"
-        )
-        raise
-
-
 @app.post("/chat")
 def chat(
     request: ChatRequest,
