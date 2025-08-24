@@ -301,9 +301,6 @@ class MultiRouteChain:
                     str(e),
                 )
 
-                # 예외를 다시 발생시켜 상위에서 처리하도록 함
-                raise
-
         def timestamp_to_kst(ts: float) -> str:
             return (
                 datetime.fromtimestamp(ts, tz=ZoneInfo("UTC"))
