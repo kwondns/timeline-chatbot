@@ -1,3 +1,4 @@
+import time
 from datetime import datetime, timedelta
 from typing import Dict, List, Any
 from zoneinfo import ZoneInfo
@@ -12,9 +13,11 @@ from langchain.retrievers.time_weighted_retriever import (
     TimeWeightedVectorStoreRetriever,
 )
 from langchain.chains.query_constructor.base import AttributeInfo
+from sqlalchemy.orm import sessionmaker
 
 from config import Config
 from fetch import DatabaseConnection
+from route_logging_service import log_route_decision
 
 
 class MultiRouteChain:
@@ -25,6 +28,7 @@ class MultiRouteChain:
         self.embeddings = self.config.embeddings
         self.llm = self.config.llm
         self.vectorstore = self.config.vector_store
+        self.session_local = sessionmaker(bind=self.engine)
 
         # 실제 데이터 스키마에 맞는 메타데이터 필드 정의
         self.metadata_field_info = [
@@ -53,6 +57,43 @@ class MultiRouteChain:
         # 라우팅 체인 설정
         self._setup_routing_chain()
         self._setup_main_chain()
+
+    def _log_route_decision(
+        self,
+        query: str,
+        user_id: str,
+        routing_result: Dict,
+        locale: str,
+        latency_ms: int,
+        success: bool = True,
+        error_message: str = None,
+    ):
+        try:
+            with self.session_local() as session:
+                confidence_score = None
+                if routing_result.get("confidence") is not None:
+                    confidence_score = int(routing_result["confidence"] * 100)
+                log_route_decision(
+                    session,
+                    query_text=query,
+                    route_name=routing_result["destination"],
+                    user_id=user_id,
+                    source="chat",
+                    decision_score=confidence_score,
+                    retriever=routing_result["destination"],
+                    locale=locale,
+                    model=self.config.model,
+                    latency_ms=latency_ms,
+                    success=success,
+                    error_message=error_message,
+                    extra={
+                        "reasoning": routing_result.get("reasoning"),
+                        "search_kwargs": routing_result.get("search_kwargs", {}),
+                        "original_confidence": routing_result.get("confidence"),
+                    },
+                )
+        except Exception as e:
+            print(f"Error logging route decision: {e}")
 
     def _setup_routing_chain(self):
         """사용자의 과거 작업 특성에 맞춘 라우팅 시스템"""
@@ -191,44 +232,77 @@ class MultiRouteChain:
             user_id = inputs["user_id"]
             locale = inputs["locale"]
 
-            # 라우팅 결정
-            routing_result = self.route_chain.invoke({"query": query})
+            routing_start_time = time.time()
 
-            # 통계 업데이트
-            destination = routing_result["destination"]
+            try:
 
-            # 검색기 선택 및 실행
-            if destination == "FILTER":
-                docs = self.make_self_query_retriever(user_id).invoke(query)
-            elif destination == "WEIGHTED":
-                docs = self.make_weighted_retriever(user_id).invoke(query)
-            elif destination == "SORT":
-                search_kwargs = routing_result.get("search_kwargs", {})
-                if "sort" in search_kwargs:
-                    docs = self._direct_filter_vector_search(
-                        query, search_kwargs=search_kwargs, user_id=user_id
+                # 라우팅 결정
+                routing_result = self.route_chain.invoke({"query": query})
+                routing_latency_ms = int((time.time() - routing_start_time) * 1000)
+
+                # 통계 업데이트
+                destination = routing_result["destination"]
+
+                # 검색기 선택 및 실행
+                if destination == "FILTER":
+                    docs = self.make_self_query_retriever(user_id).invoke(query)
+                elif destination == "WEIGHTED":
+                    docs = self.make_weighted_retriever(user_id).invoke(query)
+                elif destination == "SORT":
+                    search_kwargs = routing_result.get("search_kwargs", {})
+                    if "sort" in search_kwargs:
+                        docs = self._direct_filter_vector_search(
+                            query, search_kwargs=search_kwargs, user_id=user_id
+                        )
+                elif destination == "SIMILARITY":
+                    docs = self.make_multi_query_retriever(user_id).invoke(query)
+                else:  # ETC
+                    answer = self.config.llm.invoke(query)
+                    self._log_route_decision(
+                        query, user_id, routing_result, locale, routing_latency_ms, True
                     )
-            elif destination == "SIMILARITY":
-                docs = self.make_multi_query_retriever(user_id).invoke(query)
-            else:  # ETC
-                answer = self.config.llm.invoke(query)
+
+                    return {
+                        "query": query,
+                        "documents": [],
+                        "routing_decision": destination,
+                        "reasoning": routing_result["reasoning"],
+                        "confidence": routing_result["confidence"],
+                        "direct_answer": answer.content.strip(),
+                        "locale": locale,
+                    }
+                self._log_route_decision(
+                    query, user_id, routing_result, locale, routing_latency_ms, True
+                )
                 return {
                     "query": query,
-                    "documents": [],
+                    "documents": docs,
                     "routing_decision": destination,
                     "reasoning": routing_result["reasoning"],
                     "confidence": routing_result["confidence"],
-                    "direct_answer": answer.content.strip(),
                     "locale": locale,
                 }
-            return {
-                "query": query,
-                "documents": docs,
-                "routing_decision": destination,
-                "reasoning": routing_result["reasoning"],
-                "confidence": routing_result["confidence"],
-                "locale": locale,
-            }
+            except Exception as e:
+                routing_latency_ms = int((time.time() - routing_start_time) * 1000)
+
+                # 실패 로깅
+                error_routing_result = {
+                    "destination": "ERROR",
+                    "reasoning": "라우팅 실패",
+                    "confidence": 0.0,
+                }
+                self._log_route_decision(
+                    query,
+                    user_id,
+                    error_routing_result,
+                    locale,
+                    routing_latency_ms,
+                    False,
+                    str(e),
+                )
+
+                # 예외를 다시 발생시켜 상위에서 처리하도록 함
+                raise
 
         def timestamp_to_kst(ts: float) -> str:
             return (
