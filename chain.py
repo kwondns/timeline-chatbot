@@ -360,7 +360,7 @@ class MultiRouteChain:
                     ),
                     (
                         "human",
-                        f"""
+                        """
                 질문: {query}
 
                 관련 과거 작업들:
